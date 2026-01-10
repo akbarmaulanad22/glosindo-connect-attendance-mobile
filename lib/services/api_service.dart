@@ -1,11 +1,10 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ==================== API SERVICE ====================
 class ApiService {
-  // Ganti dengan URL API Anda
-  static const String baseUrl = 'https://api.glosindo.com/api/v1';
+  static const String baseUrl = 'https://top-gibbon-engaged.ngrok-free.app/api';
 
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -15,64 +14,82 @@ class ApiService {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'Authorization': 'Bearer $token',
+      'ngrok-skip-browser-warning': "true",
     };
   }
 
-  // Auth endpoints
+  // ==================== AUTH ENDPOINTS ====================
+
+  // Login endpoint
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      // final response = await http.post(
-      //   Uri.parse('$baseUrl/auth/login'),
-      //   headers: {'Content-Type': 'application/json'},
-      //   body: jsonEncode({'email': email, 'password': password}),
-      // );
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/login'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'ngrok-skip-browser-warning': "true",
+        },
+        body: jsonEncode({'email': email, 'password': password}),
+      );
 
-      // if (response.statusCode == 200) {
-      //   return jsonDecode(response.body);
-      // } else {
-      //   throw Exception('Login failed: ${response.statusCode}');
-      // }
-      if (email == "Admin@gmail.com" && password == "palelu") {
-        return {
-          'success': true,
-          'message': 'Login berhasil',
-          'data': {
-            'token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
-            'user': {
-              'id': '1',
-              'nik': '123456',
-              'name': 'John Doe',
-              'email': email,
-              'jabatan': 'Software Engineer',
-              'divisi': 'IT Department',
-            },
-          },
-        };
+      final responseBody = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return responseBody;
+      } else if (response.statusCode == 401 || response.statusCode == 400) {
+        return responseBody;
       } else {
-        // throw Exception('Login failed: ${response.statusCode}');
-        throw Exception('Login failed: 401');
+        return {
+          'success': false,
+          'error': 'Server error: ${response.statusCode}',
+        };
       }
     } catch (e) {
-      // Mock response untuk testing
+      debugPrint('Login error: $e');
       return {
-        'success': true,
-        'message': 'Login berhasil',
-        'data': {
-          'token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
-          'user': {
-            'id': '1',
-            'nik': '123456',
-            'name': 'John Doe',
-            'email': email,
-            'jabatan': 'Software Engineer',
-            'divisi': 'IT Department',
-          },
-        },
+        'success': false,
+        'error':
+            'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.',
       };
     }
   }
 
-  // Presensi endpoints
+  // Get user profile
+  Future<Map<String, dynamic>> getUserProfile() async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/profile'),
+        headers: headers,
+      );
+
+      final responseBody = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return responseBody;
+      } else if (response.statusCode == 401) {
+        return {
+          'success': false,
+          'error': 'Session expired. Please login again.',
+        };
+      } else {
+        return {
+          'success': false,
+          'error': 'Failed to load profile: ${response.statusCode}',
+        };
+      }
+    } catch (e) {
+      debugPrint('Get profile error: $e');
+      return {
+        'success': false,
+        'error': 'Tidak dapat memuat profil. Periksa koneksi internet Anda.',
+      };
+    }
+  }
+
+  // ==================== PRESENSI ENDPOINTS ====================
+
   Future<Map<String, dynamic>> checkIn({
     required double latitude,
     required double longitude,
@@ -156,10 +173,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getTodayPresensi() async {
     // Mock response
-    return {
-      'success': true,
-      'data': null, // null jika belum presensi hari ini
-    };
+    return {'success': true, 'data': null};
   }
 
   Future<Map<String, dynamic>> getPresensiHistory() async {
@@ -167,7 +181,8 @@ class ApiService {
     return {'success': true, 'data': []};
   }
 
-  // Tiket endpoints
+  // ==================== TIKET ENDPOINTS ====================
+
   Future<Map<String, dynamic>> getTikets({
     String? search,
     String? category,
@@ -216,7 +231,8 @@ class ApiService {
     }
   }
 
-  // Kasbon endpoints
+  // ==================== KASBON ENDPOINTS ====================
+
   Future<Map<String, dynamic>> submitKasbon(
     double amount,
     String reason,
@@ -243,7 +259,8 @@ class ApiService {
     return {'success': true, 'data': []};
   }
 
-  // Pengajuan (Lembur, Izin, Cuti) endpoints
+  // ==================== PENGAJUAN ENDPOINTS ====================
+
   Future<Map<String, dynamic>> submitPengajuan(
     Map<String, dynamic> data,
   ) async {
@@ -269,7 +286,8 @@ class ApiService {
     return {'success': true, 'data': []};
   }
 
-  // Shifting endpoints
+  // ==================== SHIFTING ENDPOINTS ====================
+
   Future<Map<String, dynamic>> getShiftSchedule(
     DateTime startDate,
     DateTime endDate,
@@ -277,7 +295,8 @@ class ApiService {
     return {'success': true, 'data': _getMockShifts()};
   }
 
-  // Mock data helpers
+  // ==================== MOCK DATA HELPERS ====================
+
   List<Map<String, dynamic>> _getMockTikets() {
     return [
       {

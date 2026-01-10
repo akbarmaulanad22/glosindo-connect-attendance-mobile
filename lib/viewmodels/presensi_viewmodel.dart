@@ -15,8 +15,8 @@ class PresensiViewModel extends ChangeNotifier {
   Position? _currentPosition;
 
   // Koordinat kantor (contoh: Jakarta)
-  static const double officeLatitude = -6.200000;
-  static const double officeLongitude = 106.816666;
+  static const double officeLatitude = -6.615841436357688;
+  static const double officeLongitude = 106.78559126740716;
   static const double maxDistanceInMeters = 100.0; // 100 meter radius
 
   List<PresensiModel> get presensiList => _presensiList;

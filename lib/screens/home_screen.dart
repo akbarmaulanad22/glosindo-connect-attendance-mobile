@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:glosindo_connect/screens/presensi_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/presensi_viewmodel.dart';
+import 'presensi_screen.dart';
 import 'tiket_screen.dart';
 import 'report_progress_screen.dart';
 import 'kasbon_screen.dart';
@@ -11,6 +14,7 @@ import 'pengajuan_screen.dart';
 import 'shifting_screen.dart';
 import 'profile_screen.dart';
 import 'company_info_screen.dart';
+import 'attendance_confirmation_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -20,6 +24,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _isProcessing = false;
+
   @override
   void initState() {
     super.initState();
@@ -29,6 +36,223 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     final presensiViewModel = context.read<PresensiViewModel>();
     await presensiViewModel.fetchTodayPresensi();
+  }
+
+  // ==================== ATTENDANCE FLOW HANDLER ====================
+
+  Future<void> _handleAttendance() async {
+    if (_isProcessing) return;
+
+    setState(() => _isProcessing = true);
+
+    try {
+      // Step 1: Check and request permissions
+      print('📱 Step 1: Requesting permissions...');
+      final permissionsGranted = await _requestPermissions();
+
+      if (!permissionsGranted) {
+        print('❌ Permissions denied');
+        setState(() => _isProcessing = false);
+        return;
+      }
+      print('✅ Permissions granted');
+
+      // Step 2: Capture image
+      print('📷 Step 2: Opening camera...');
+      final imagePath = await _captureImage();
+
+      if (imagePath == null) {
+        print('❌ Image capture cancelled');
+        setState(() => _isProcessing = false);
+        return; // User cancelled
+      }
+      print('✅ Image captured: $imagePath');
+
+      // Step 3: Show loading while getting location
+      if (mounted) {
+        print('📍 Step 3: Getting GPS location...');
+        _showLoadingDialog('Mengambil lokasi...');
+      }
+
+      // Step 4: Get current location
+      final position = await _getCurrentLocation();
+      print('✅ Location obtained: ${position.latitude}, ${position.longitude}');
+
+      // Step 5: Close loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      // Step 6: Navigate to confirmation screen
+      if (mounted) {
+        print('🚀 Step 4: Navigating to confirmation screen...');
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AttendanceConfirmationScreen(
+              imagePath: imagePath,
+              latitude: position.latitude,
+              longitude: position.longitude,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error in attendance flow: $e');
+      if (mounted) {
+        // Close loading dialog if open
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        _showError('Terjadi kesalahan: ${e.toString()}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  // Check and request camera & location permissions
+  Future<bool> _requestPermissions() async {
+    try {
+      // Check location service enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showError('Mohon aktifkan GPS/Lokasi di pengaturan HP Anda');
+        return false;
+      }
+
+      // Request location permission using Geolocator
+      LocationPermission locationPermission =
+          await Geolocator.checkPermission();
+      if (locationPermission == LocationPermission.denied) {
+        locationPermission = await Geolocator.requestPermission();
+        if (locationPermission == LocationPermission.denied) {
+          _showError('Izin lokasi ditolak');
+          return false;
+        }
+      }
+
+      if (locationPermission == LocationPermission.deniedForever) {
+        _showPermissionDialog();
+        return false;
+      }
+
+      // Request camera permission using permission_handler
+      var cameraStatus = await Permission.camera.status;
+      if (!cameraStatus.isGranted) {
+        cameraStatus = await Permission.camera.request();
+        if (!cameraStatus.isGranted) {
+          _showError('Izin kamera ditolak');
+          return false;
+        }
+      }
+
+      if (cameraStatus.isPermanentlyDenied) {
+        _showPermissionDialog();
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      print('Permission error: $e');
+      _showError('Gagal meminta izin: ${e.toString()}');
+      return false;
+    }
+  }
+
+  // Capture image using camera
+  Future<String?> _captureImage() async {
+    try {
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        imageQuality: 85,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
+
+      return photo?.path;
+    } catch (e) {
+      print('Error capturing image: $e');
+      return null;
+    }
+  }
+
+  // Get current GPS location
+  Future<Position> _getCurrentLocation() async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      return position;
+    } catch (e) {
+      throw Exception('Gagal mendapatkan lokasi: ${e.toString()}');
+    }
+  }
+
+  // Show loading dialog
+  void _showLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => WillPopScope(
+        onWillPop: () async => false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Show error message
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // Show permission dialog
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Izin Diperlukan'),
+        content: const Text(
+          'Aplikasi memerlukan izin kamera dan lokasi untuk fitur presensi. '
+          'Silakan aktifkan di pengaturan aplikasi.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              openAppSettings();
+            },
+            child: const Text('Buka Pengaturan'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -157,25 +381,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ],
                                 ),
-                                InkWell(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            const PresensiScreen(),
-                                      ),
-                                    );
-                                  },
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(4.0),
-                                    child: Icon(
-                                      Icons.access_time,
-                                      color: Colors.blue.shade700,
-                                      size: 32,
-                                    ),
-                                  ),
+                                Icon(
+                                  Icons.access_time,
+                                  color: Colors.blue.shade700,
+                                  size: 32,
                                 ),
                               ],
                             ),
@@ -217,73 +426,30 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                             ),
                             const SizedBox(height: 12),
-                            Consumer<PresensiViewModel>(
-                              builder: (context, presensiViewModel, _) {
-                                return ElevatedButton.icon(
-                                  onPressed: presensiViewModel.isLoading
-                                      ? null
-                                      : () async {
-                                          // Langsung call checkIn
-                                          final success =
-                                              await presensiViewModel.checkIn();
-
-                                          if (context.mounted) {
-                                            if (success) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text(
-                                                    'Check-in berhasil!',
-                                                  ),
-                                                  backgroundColor: Colors.green,
-                                                  duration: Duration(
-                                                    seconds: 2,
-                                                  ),
-                                                ),
-                                              );
-                                            } else if (presensiViewModel
-                                                    .errorMessage !=
-                                                null) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    presensiViewModel
-                                                        .errorMessage!,
-                                                  ),
-                                                  backgroundColor: Colors.red,
-                                                  duration: const Duration(
-                                                    seconds: 3,
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          }
-                                        },
-                                  icon: presensiViewModel.isLoading
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Icon(Icons.fingerprint),
-                                  label: Text(
-                                    presensiViewModel.isLoading
-                                        ? 'Loading...'
-                                        : 'Presensi Sekarang',
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF1E88E5),
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size.fromHeight(44),
-                                  ),
-                                );
-                              },
+                            ElevatedButton.icon(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : _handleAttendance,
+                              icon: _isProcessing
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.fingerprint),
+                              label: Text(
+                                _isProcessing
+                                    ? 'Processing...'
+                                    : 'Presensi Sekarang',
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1E88E5),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(44),
+                              ),
                             ),
                           ],
                         ),
@@ -334,6 +500,17 @@ class _HomeScreenState extends State<HomeScreen> {
                               context,
                               MaterialPageRoute(
                                 builder: (_) => const TiketScreen(),
+                              ),
+                            ),
+                          ),
+                          _buildMenuCard(
+                            'Presensi',
+                            Icons.access_time,
+                            Colors.green,
+                            () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const PresensiScreen(),
                               ),
                             ),
                           ),

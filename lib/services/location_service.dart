@@ -1,6 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
+  // Check and request location permission
   Future<bool> checkLocationPermission() async {
     LocationPermission permission = await Geolocator.checkPermission();
 
@@ -18,12 +19,14 @@ class LocationService {
     return true;
   }
 
+  // Get current location
   Future<Position> getCurrentLocation() async {
     return await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
     );
   }
 
+  // Calculate distance between two coordinates
   double calculateDistance(
     double startLat,
     double startLng,

@@ -27,8 +27,8 @@ class UserModel {
       email: json['email'] ?? '',
       phone: json['phone'],
       photo: json['photo'],
-      jabatan: json['jabatan'] ?? '',
-      divisi: json['divisi'] ?? '',
+      jabatan: json['position'] ?? '',
+      divisi: json['division'] ?? '',
     );
   }
 
