@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static const String baseUrl = 'https://top-gibbon-engaged.ngrok-free.app/api';
+  // static const String baseUrl = 'http://localhost:8080/api';
 
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -90,86 +91,86 @@ class ApiService {
 
   // ==================== PRESENSI ENDPOINTS ====================
 
-  Future<Map<String, dynamic>> checkIn({
-    required double latitude,
-    required double longitude,
-  }) async {
-    try {
-      final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('$baseUrl/presensi/check-in'),
-        headers: headers,
-        body: jsonEncode({
-          'latitude': latitude,
-          'longitude': longitude,
-          'timestamp': DateTime.now().toIso8601String(),
-        }),
-      );
+  // Future<Map<String, dynamic>> checkIn({
+  //   required double latitude,
+  //   required double longitude,
+  // }) async {
+  //   try {
+  //     final headers = await _getHeaders();
+  //     final response = await http.post(
+  //       Uri.parse('$baseUrl/presensi/check-in'),
+  //       headers: headers,
+  //       body: jsonEncode({
+  //         'latitude': latitude,
+  //         'longitude': longitude,
+  //         'timestamp': DateTime.now().toIso8601String(),
+  //       }),
+  //     );
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return jsonDecode(response.body);
-      } else {
-        throw Exception('Check-in failed');
-      }
-    } catch (e) {
-      // Mock response
-      return {
-        'success': true,
-        'message': 'Check-in berhasil',
-        'data': {
-          'id': '1',
-          'user_id': '1',
-          'date': DateTime.now().toIso8601String(),
-          'check_in_time': DateTime.now().toIso8601String(),
-          'check_in_lat': latitude,
-          'check_in_lng': longitude,
-          'status': 'hadir',
-        },
-      };
-    }
-  }
+  //     if (response.statusCode == 200 || response.statusCode == 201) {
+  //       return jsonDecode(response.body);
+  //     } else {
+  //       throw Exception('Check-in failed');
+  //     }
+  //   } catch (e) {
+  //     // Mock response
+  //     return {
+  //       'success': true,
+  //       'message': 'Check-in berhasil',
+  //       'data': {
+  //         'id': '1',
+  //         'user_id': '1',
+  //         'date': DateTime.now().toIso8601String(),
+  //         'check_in_time': DateTime.now().toIso8601String(),
+  //         'check_in_lat': latitude,
+  //         'check_in_lng': longitude,
+  //         'status': 'hadir',
+  //       },
+  //     };
+  //   }
+  // }
 
-  Future<Map<String, dynamic>> checkOut({
-    required double latitude,
-    required double longitude,
-  }) async {
-    try {
-      final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('$baseUrl/presensi/check-out'),
-        headers: headers,
-        body: jsonEncode({
-          'latitude': latitude,
-          'longitude': longitude,
-          'timestamp': DateTime.now().toIso8601String(),
-        }),
-      );
+  // Future<Map<String, dynamic>> checkOut({
+  //   required double latitude,
+  //   required double longitude,
+  // }) async {
+  //   try {
+  //     final headers = await _getHeaders();
+  //     final response = await http.post(
+  //       Uri.parse('$baseUrl/presensi/check-out'),
+  //       headers: headers,
+  //       body: jsonEncode({
+  //         'latitude': latitude,
+  //         'longitude': longitude,
+  //         'timestamp': DateTime.now().toIso8601String(),
+  //       }),
+  //     );
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        throw Exception('Check-out failed');
-      }
-    } catch (e) {
-      // Mock response
-      return {
-        'success': true,
-        'message': 'Check-out berhasil',
-        'data': {
-          'id': '1',
-          'user_id': '1',
-          'date': DateTime.now().toIso8601String(),
-          'check_in_time': DateTime.now()
-              .subtract(const Duration(hours: 8))
-              .toIso8601String(),
-          'check_out_time': DateTime.now().toIso8601String(),
-          'check_out_lat': latitude,
-          'check_out_lng': longitude,
-          'status': 'hadir',
-        },
-      };
-    }
-  }
+  //     if (response.statusCode == 200) {
+  //       return jsonDecode(response.body);
+  //     } else {
+  //       throw Exception('Check-out failed');
+  //     }
+  //   } catch (e) {
+  //     // Mock response
+  //     return {
+  //       'success': true,
+  //       'message': 'Check-out berhasil',
+  //       'data': {
+  //         'id': '1',
+  //         'user_id': '1',
+  //         'date': DateTime.now().toIso8601String(),
+  //         'check_in_time': DateTime.now()
+  //             .subtract(const Duration(hours: 8))
+  //             .toIso8601String(),
+  //         'check_out_time': DateTime.now().toIso8601String(),
+  //         'check_out_lat': latitude,
+  //         'check_out_lng': longitude,
+  //         'status': 'hadir',
+  //       },
+  //     };
+  //   }
+  // }
 
   Future<Map<String, dynamic>> getTodayPresensi() async {
     // Mock response

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:glosindo_connect/services/attendance_service.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../viewmodels/auth_viewmodel.dart';
-import '../viewmodels/presensi_viewmodel.dart';
+import '../services/location_service.dart';
+import '../services/image_watermark_service.dart';
 import 'presensi_screen.dart';
 import 'tiket_screen.dart';
 import 'report_progress_screen.dart';
@@ -25,20 +27,97 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _imagePicker = ImagePicker();
+  final LocationService _locationService = LocationService();
+  final ImageWatermarkService _watermarkService = ImageWatermarkService();
+  final AttendanceService _attendanceService = AttendanceService();
+
   bool _isProcessing = false;
+
+  // ==================== ATTENDANCE STATE ====================
+  bool _isLoadingAttendance = true;
+  String? _clockInTime;
+  String? _clockOutTime;
+  bool _hasClockIn = false;
+  bool _hasClockOut = false;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadTodayAttendance();
   }
 
-  Future<void> _loadData() async {
-    final presensiViewModel = context.read<PresensiViewModel>();
-    await presensiViewModel.fetchTodayPresensi();
+  // ==================== LOAD TODAY'S ATTENDANCE ====================
+
+  /// Fetch today's attendance data on init
+  Future<void> _loadTodayAttendance() async {
+    setState(() => _isLoadingAttendance = true);
+
+    try {
+      debugPrint('📊 Loading today\'s attendance...');
+
+      final response = await _attendanceService.getTodayAttendance();
+
+      if (response['success'] == true) {
+        if (response['hasAttendance'] == true && response['data'] != null) {
+          final data = response['data'];
+
+          // Parse clock_in and clock_out
+          final clockIn = data['clock_in'];
+          final clockOut = data['clock_out'];
+
+          setState(() {
+            _hasClockIn = clockIn != null;
+            _hasClockOut = clockOut != null;
+
+            // Parse time strings for display
+            if (clockIn != null) {
+              try {
+                final dateTime = DateTime.parse(clockIn);
+                _clockInTime = DateFormat('HH:mm').format(dateTime);
+              } catch (e) {
+                _clockInTime = '--:--';
+                debugPrint('Error parsing clock_in: $e');
+              }
+            }
+
+            if (clockOut != null) {
+              try {
+                final dateTime = DateTime.parse(clockOut);
+                _clockOutTime = DateFormat('HH:mm').format(dateTime);
+              } catch (e) {
+                _clockOutTime = '--:--';
+                debugPrint('Error parsing clock_out: $e');
+              }
+            }
+          });
+
+          debugPrint('✅ Attendance loaded:');
+          debugPrint('   Clock In: ${_hasClockIn ? _clockInTime : "Not yet"}');
+          debugPrint(
+            '   Clock Out: ${_hasClockOut ? _clockOutTime : "Not yet"}',
+          );
+        } else {
+          // No attendance today
+          setState(() {
+            _hasClockIn = false;
+            _hasClockOut = false;
+            _clockInTime = null;
+            _clockOutTime = null;
+          });
+          debugPrint('ℹ️ No attendance today');
+        }
+      } else {
+        // API error
+        debugPrint('❌ Failed to load attendance: ${response['error']}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading attendance: $e');
+    } finally {
+      setState(() => _isLoadingAttendance = false);
+    }
   }
 
-  // ==================== ATTENDANCE FLOW HANDLER ====================
+  // ==================== REVISED ATTENDANCE FLOW HANDLER ====================
 
   Future<void> _handleAttendance() async {
     if (_isProcessing) return;
@@ -46,61 +125,105 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      // Step 1: Check and request permissions
-      print('📱 Step 1: Requesting permissions...');
-      final permissionsGranted = await _requestPermissions();
+      // STEP 1: STRICT Location Service Check (GPS + Permissions)
+      print('📱 STEP 1: Strict location service check...');
+      final locationOK = await _checkLocationServiceStrict();
 
-      if (!permissionsGranted) {
-        print('❌ Permissions denied');
+      if (!locationOK) {
+        print('❌ Location service check failed');
         setState(() => _isProcessing = false);
         return;
       }
-      print('✅ Permissions granted');
+      print('✅ Location service OK');
 
-      // Step 2: Capture image
-      print('📷 Step 2: Opening camera...');
+      // STEP 2: Validate location (Mock GPS check)
+      print('📍 STEP 2: Validating location (Mock GPS check)...');
+
+      Position position;
+      try {
+        position = await _locationService.getCurrentPositionWithValidation();
+        print(
+          '✅ Location validated: ${position.latitude}, ${position.longitude}',
+        );
+      } on MockLocationException catch (e) {
+        // Mock location detected!
+        print('❌ Mock Location Detected!');
+        if (mounted) {
+          _showMockLocationDialog();
+        }
+        setState(() => _isProcessing = false);
+        return;
+      } catch (e) {
+        print('❌ Location error: $e');
+        if (mounted) {
+          _showError('Gagal mendapatkan lokasi: ${e.toString()}');
+        }
+        setState(() => _isProcessing = false);
+        return;
+      }
+
+      // STEP 3: Capture image
+      print('📷 STEP 3: Opening camera...');
       final imagePath = await _captureImage();
 
       if (imagePath == null) {
         print('❌ Image capture cancelled');
         setState(() => _isProcessing = false);
-        return; // User cancelled
+        return;
       }
       print('✅ Image captured: $imagePath');
 
-      // Step 3: Show loading while getting location
+      // STEP 4: Process image (Watermark)
+      print('🎨 STEP 4: Adding watermark...');
       if (mounted) {
-        print('📍 Step 3: Getting GPS location...');
-        _showLoadingDialog('Mengambil lokasi...');
+        _showLoadingDialog('Memproses foto...');
       }
 
-      // Step 4: Get current location
-      final position = await _getCurrentLocation();
-      print('✅ Location obtained: ${position.latitude}, ${position.longitude}');
+      final watermarkedPath = await _watermarkService.addWatermark(
+        imagePath: imagePath,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      print('✅ Watermark applied: $watermarkedPath');
 
-      // Step 5: Close loading dialog
+      // Close loading dialog
       if (mounted) {
         Navigator.pop(context);
       }
 
-      // Step 6: Navigate to confirmation screen
+      // STEP 5: Determine action based on CURRENT STATE
+      print('🔍 STEP 5: Determining action...');
+      final bool isClockOut = _hasClockIn && !_hasClockOut;
+
+      print('📊 Current State:');
+      print('   Has Clock In: $_hasClockIn');
+      print('   Has Clock Out: $_hasClockOut');
+      print('   Action: ${isClockOut ? "CLOCK OUT" : "CLOCK IN"}');
+
+      // STEP 6: Navigate to confirmation screen
       if (mounted) {
-        print('🚀 Step 4: Navigating to confirmation screen...');
-        await Navigator.push(
+        print('🚀 STEP 6: Navigating to confirmation screen...');
+        final success = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
             builder: (context) => AttendanceConfirmationScreen(
-              imagePath: imagePath,
+              imagePath: watermarkedPath,
               latitude: position.latitude,
               longitude: position.longitude,
+              isClockOut: isClockOut,
             ),
           ),
         );
+
+        // Refresh data if successful
+        if (success == true) {
+          print('✅ Attendance successful - Reloading data...');
+          await _loadTodayAttendance();
+        }
       }
     } catch (e) {
       print('❌ Error in attendance flow: $e');
       if (mounted) {
-        // Close loading dialog if open
         Navigator.of(context).popUntil((route) => route.isFirst);
         _showError('Terjadi kesalahan: ${e.toString()}');
       }
@@ -111,56 +234,150 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Check and request camera & location permissions
-  Future<bool> _requestPermissions() async {
+  // ==================== STRICT LOCATION CHECK ====================
+
+  /// STRICT CHECK: GPS Service + Permissions
+  ///
+  /// Step 1: Check if GPS/Location Service is enabled
+  /// Step 2: Check location permissions
+  ///
+  /// Returns true if all checks pass, false otherwise
+  Future<bool> _checkLocationServiceStrict() async {
     try {
-      // Check location service enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      // ==================== CHECK 1: GPS HARDWARE ====================
+      debugPrint('🔍 Check 1: GPS Service Status...');
+
+      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
       if (!serviceEnabled) {
-        _showError('Mohon aktifkan GPS/Lokasi di pengaturan HP Anda');
-        return false;
+        debugPrint('❌ GPS is DISABLED');
+
+        // Show dialog to ask user to enable GPS
+        if (!mounted) return false;
+
+        final shouldOpenSettings = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.location_off, color: Colors.red, size: 28),
+                SizedBox(width: 12),
+                Text('GPS Tidak Aktif'),
+              ],
+            ),
+            content: const Text(
+              'Aplikasi memerlukan GPS untuk verifikasi lokasi presensi.\n\n'
+              'Mohon aktifkan GPS/Lokasi di pengaturan perangkat Anda.',
+              style: TextStyle(fontSize: 15, height: 1.5),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Batal'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.settings),
+                label: const Text('Buka Pengaturan'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E88E5),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldOpenSettings == true) {
+          // Open location settings
+          await Geolocator.openLocationSettings();
+
+          // Wait a bit for user to enable GPS
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          // Re-check after user returns
+          final isNowEnabled = await Geolocator.isLocationServiceEnabled();
+          if (!isNowEnabled) {
+            if (mounted) {
+              _showError(
+                'GPS masih belum aktif. Mohon aktifkan GPS terlebih dahulu.',
+              );
+            }
+            return false;
+          }
+
+          debugPrint('✅ GPS enabled by user');
+        } else {
+          return false;
+        }
+      } else {
+        debugPrint('✅ GPS is ENABLED');
       }
 
-      // Request location permission using Geolocator
-      LocationPermission locationPermission =
-          await Geolocator.checkPermission();
-      if (locationPermission == LocationPermission.denied) {
-        locationPermission = await Geolocator.requestPermission();
-        if (locationPermission == LocationPermission.denied) {
-          _showError('Izin lokasi ditolak');
+      // ==================== CHECK 2: PERMISSIONS ====================
+      debugPrint('🔍 Check 2: Location Permission...');
+
+      LocationPermission permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        debugPrint('⚠️ Permission DENIED - Requesting...');
+        permission = await Geolocator.requestPermission();
+
+        if (permission == LocationPermission.denied) {
+          debugPrint('❌ Permission DENIED by user');
+          if (mounted) {
+            _showError(
+              'Izin lokasi ditolak. Aplikasi memerlukan izin lokasi untuk presensi.',
+            );
+          }
           return false;
         }
       }
 
-      if (locationPermission == LocationPermission.deniedForever) {
-        _showPermissionDialog();
+      if (permission == LocationPermission.deniedForever) {
+        debugPrint('❌ Permission DENIED FOREVER');
+        if (mounted) {
+          _showPermissionDialog();
+        }
         return false;
       }
 
-      // Request camera permission using permission_handler
+      debugPrint('✅ Location permission granted');
+
+      // ==================== CHECK 3: CAMERA PERMISSION ====================
+      debugPrint('🔍 Check 3: Camera Permission...');
+
       var cameraStatus = await Permission.camera.status;
       if (!cameraStatus.isGranted) {
         cameraStatus = await Permission.camera.request();
         if (!cameraStatus.isGranted) {
-          _showError('Izin kamera ditolak');
+          if (mounted) {
+            _showError('Izin kamera ditolak');
+          }
           return false;
         }
       }
 
       if (cameraStatus.isPermanentlyDenied) {
-        _showPermissionDialog();
+        if (mounted) {
+          _showPermissionDialog();
+        }
         return false;
       }
 
+      debugPrint('✅ All permissions granted');
       return true;
     } catch (e) {
-      print('Permission error: $e');
-      _showError('Gagal meminta izin: ${e.toString()}');
+      debugPrint('❌ Error checking location service: $e');
+      if (mounted) {
+        _showError('Gagal memeriksa layanan lokasi: ${e.toString()}');
+      }
       return false;
     }
   }
 
-  // Capture image using camera
+  // Capture image using front camera
   Future<String?> _captureImage() async {
     try {
       final XFile? photo = await _imagePicker.pickImage(
@@ -175,19 +392,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       print('Error capturing image: $e');
       return null;
-    }
-  }
-
-  // Get current GPS location
-  Future<Position> _getCurrentLocation() async {
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-      return position;
-    } catch (e) {
-      throw Exception('Gagal mendapatkan lokasi: ${e.toString()}');
     }
   }
 
@@ -255,6 +459,38 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Show CRITICAL blocking dialog for Mock Location
+  void _showMockLocationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 32),
+            SizedBox(width: 12),
+            Text('Lokasi Palsu Terdeteksi'),
+          ],
+        ),
+        content: const Text(
+          'Aplikasi mendeteksi Anda menggunakan Fake GPS atau lokasi palsu. '
+          'Mohon matikan aplikasi Fake GPS dan aktifkan lokasi asli untuk melanjutkan presensi.',
+          style: TextStyle(fontSize: 15, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authViewModel = context.watch<AuthViewModel>();
@@ -264,7 +500,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFFF5F7FA),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _loadData,
+          onRefresh: _loadTodayAttendance,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(
@@ -381,76 +617,93 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ],
                                 ),
-                                Icon(
-                                  Icons.access_time,
-                                  color: Colors.blue.shade700,
-                                  size: 32,
+                                IconButton(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const PresensiScreen(),
+                                      ),
+                                    );
+                                  },
+                                  icon: Icon(
+                                    Icons.access_time,
+                                    color: Colors.blue.shade700,
+                                    size: 32,
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 16),
-                            Consumer<PresensiViewModel>(
-                              builder: (context, presensiViewModel, _) {
-                                final todayPresensi =
-                                    presensiViewModel.todayPresensi;
-
-                                return Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildTimeCard(
-                                        'Check In',
-                                        todayPresensi?.checkInTime != null
-                                            ? DateFormat('HH:mm').format(
-                                                todayPresensi!.checkInTime!,
-                                              )
-                                            : '--:--',
-                                        Icons.login,
-                                        Colors.green,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: _buildTimeCard(
-                                        'Check Out',
-                                        todayPresensi?.checkOutTime != null
-                                            ? DateFormat('HH:mm').format(
-                                                todayPresensi!.checkOutTime!,
-                                              )
-                                            : '--:--',
-                                        Icons.logout,
-                                        Colors.orange,
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildTimeCard(
+                                    'Check In',
+                                    _clockInTime ?? '--:--',
+                                    Icons.login,
+                                    Colors.green,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildTimeCard(
+                                    'Check Out',
+                                    _clockOutTime ?? '--:--',
+                                    Icons.logout,
+                                    Colors.orange,
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              onPressed: _isProcessing
-                                  ? null
-                                  : _handleAttendance,
-                              icon: _isProcessing
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.fingerprint),
-                              label: Text(
-                                _isProcessing
-                                    ? 'Processing...'
-                                    : 'Presensi Sekarang',
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF1E88E5),
-                                foregroundColor: Colors.white,
-                                minimumSize: const Size.fromHeight(44),
-                              ),
-                            ),
+
+                            // DYNAMIC BUTTON - Clock In or Clock Out
+                            _isLoadingAttendance
+                                ? const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(12.0),
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  )
+                                : ElevatedButton.icon(
+                                    onPressed: _hasClockOut || _isProcessing
+                                        ? null
+                                        : _handleAttendance,
+                                    icon: _isProcessing
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : Icon(
+                                            _hasClockIn && !_hasClockOut
+                                                ? Icons.logout
+                                                : Icons.fingerprint,
+                                          ),
+                                    label: Text(
+                                      _isProcessing
+                                          ? 'Processing...'
+                                          : _hasClockOut
+                                          ? 'Presensi Selesai'
+                                          : _hasClockIn
+                                          ? 'Clock Out Sekarang'
+                                          : 'Clock In Sekarang',
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _hasClockOut
+                                          ? Colors.grey
+                                          : _hasClockIn
+                                          ? Colors.orange
+                                          : const Color(0xFF1E88E5),
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size.fromHeight(44),
+                                    ),
+                                  ),
                           ],
                         ),
                       ),
@@ -460,7 +713,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 const SizedBox(height: 8),
 
-                // Menu Grid
+                // Menu Grid (sama seperti sebelumnya...)
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(

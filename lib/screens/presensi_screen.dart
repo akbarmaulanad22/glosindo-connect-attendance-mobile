@@ -237,7 +237,7 @@ class _PresensiScreenState extends State<PresensiScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () => _handleCheckIn(),
+              onPressed: () => {},
               icon: const Icon(Icons.login),
               label: const Text('Check In Sekarang'),
               style: ElevatedButton.styleFrom(
@@ -479,7 +479,7 @@ class _PresensiScreenState extends State<PresensiScreen> {
             if (todayPresensi?.checkInTime != null &&
                 todayPresensi?.checkOutTime == null)
               FloatingActionButton.extended(
-                onPressed: viewModel.isLoading ? null : () => _handleCheckOut(),
+                onPressed: viewModel.isLoading ? null : () => {},
                 heroTag: 'checkout',
                 backgroundColor: Colors.orange,
                 icon: const Icon(Icons.logout),
@@ -508,74 +508,74 @@ class _PresensiScreenState extends State<PresensiScreen> {
     }
   }
 
-  Future<void> _handleCheckIn() async {
-    final viewModel = context.read<PresensiViewModel>();
-    final success = await viewModel.checkIn();
+  // Future<void> _handleCheckIn() async {
+  //   final viewModel = context.read<PresensiViewModel>();
+  //   final success = await viewModel.checkIn();
 
-    if (!mounted) return;
+  //   if (!mounted) return;
 
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Check-in berhasil!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      await _loadData();
-    } else if (viewModel.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(viewModel.errorMessage!),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
+  //   if (success) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Check-in berhasil!'),
+  //         backgroundColor: Colors.green,
+  //       ),
+  //     );
+  //     await _loadData();
+  //   } else if (viewModel.errorMessage != null) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text(viewModel.errorMessage!),
+  //         backgroundColor: Colors.red,
+  //         duration: const Duration(seconds: 3),
+  //       ),
+  //     );
+  //   }
+  // }
 
-  Future<void> _handleCheckOut() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Konfirmasi Check Out'),
-        content: const Text('Apakah Anda yakin ingin melakukan check out?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text('Ya, Check Out'),
-          ),
-        ],
-      ),
-    );
+  // Future<void> _handleCheckOut() async {
+  //   final confirmed = await showDialog<bool>(
+  //     context: context,
+  //     builder: (context) => AlertDialog(
+  //       title: const Text('Konfirmasi Check Out'),
+  //       content: const Text('Apakah Anda yakin ingin melakukan check out?'),
+  //       actions: [
+  //         TextButton(
+  //           onPressed: () => Navigator.pop(context, false),
+  //           child: const Text('Batal'),
+  //         ),
+  //         ElevatedButton(
+  //           onPressed: () => Navigator.pop(context, true),
+  //           style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+  //           child: const Text('Ya, Check Out'),
+  //         ),
+  //       ],
+  //     ),
+  //   );
 
-    if (confirmed != true) return;
+  //   if (confirmed != true) return;
 
-    final viewModel = context.read<PresensiViewModel>();
-    final success = await viewModel.checkOut();
+  //   final viewModel = context.read<PresensiViewModel>();
+  //   final success = await viewModel.checkOut();
 
-    if (!mounted) return;
+  //   if (!mounted) return;
 
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Check-out berhasil!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      await _loadData();
-    } else if (viewModel.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(viewModel.errorMessage!),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
+  //   if (success) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Check-out berhasil!'),
+  //         backgroundColor: Colors.green,
+  //       ),
+  //     );
+  //     await _loadData();
+  //   } else if (viewModel.errorMessage != null) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text(viewModel.errorMessage!),
+  //         backgroundColor: Colors.red,
+  //         duration: const Duration(seconds: 3),
+  //       ),
+  //     );
+  //   }
+  // }
 }
