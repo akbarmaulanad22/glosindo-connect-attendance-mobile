@@ -9,12 +9,12 @@ class AttendanceConfirmationScreen extends StatefulWidget {
   final bool isClockOut; // true = clock-out, false = clock-in
 
   const AttendanceConfirmationScreen({
-    Key? key,
+    super.key,
     required this.imagePath,
     required this.latitude,
     required this.longitude,
     this.isClockOut = false,
-  }) : super(key: key);
+  });
 
   @override
   State<AttendanceConfirmationScreen> createState() =>

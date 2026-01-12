@@ -68,37 +68,6 @@ class AttendanceService {
 
   /// Check today's attendance status
   /// GET /attendance/today
-  ///
-  /// Returns attendance data with clock_in and clock_out status
-  ///
-  /// Response format:
-  /// ```json
-  /// {
-  ///   "success": true,
-  ///   "message": "Today's attendance retrieved successfully",
-  ///   "data": {
-  ///     "id": 1,
-  ///     "user_id": 1,
-  ///     "clock_in": "2026-01-11T13:22:47.51357+07:00",  // null if not clocked in
-  ///     "clock_out": null,                               // null if not clocked out
-  ///     "lat_in": -6.6156901,
-  ///     "long_in": 106.7855765,
-  ///     "lat_out": null,
-  ///     "long_out": null,
-  ///     "image_url": "public\\uploads\\...",
-  ///     "date": "2026-01-11T00:00:00Z"
-  ///   }
-  /// }
-  /// ```
-  ///
-  /// Return format:
-  /// ```dart
-  /// {
-  ///   'success': true,
-  ///   'hasAttendance': true,  // true if data exists, false if no attendance today
-  ///   'data': {...}           // attendance data or null
-  /// }
-  /// ```
   Future<Map<String, dynamic>> getTodayAttendance() async {
     try {
       debugPrint('📡 API Call: GET /attendance/today');
@@ -137,6 +106,93 @@ class AttendanceService {
         return {
           'success': false,
           'error': response.data['message'] ?? 'Failed to get today attendance',
+        };
+      }
+    } on DioException catch (e) {
+      debugPrint('❌ Dio Exception: ${e.message}');
+      return _handleDioError(e);
+    } catch (e) {
+      debugPrint('❌ Unknown Error: $e');
+      return {'success': false, 'error': 'Unexpected error: ${e.toString()}'};
+    }
+  }
+
+  // ==================== GET MONTHLY ATTENDANCE HISTORY ====================
+
+  /// Fetch monthly attendance history
+  /// GET /attendance/monthly?month={month}&year={year}
+  Future<Map<String, dynamic>> getMonthlyHistory({
+    required int month,
+    required int year,
+  }) async {
+    try {
+      debugPrint('📡 API Call: GET /attendance/monthly');
+      debugPrint('📅 Parameters: month=$month, year=$year');
+
+      // Validate parameters
+      if (month < 1 || month > 12) {
+        return {
+          'success': false,
+          'error': 'Invalid month: must be between 1 and 12',
+        };
+      }
+
+      if (year < 2000 || year > 2100) {
+        return {
+          'success': false,
+          'error': 'Invalid year: must be between 2000 and 2100',
+        };
+      }
+
+      // Build query parameters
+      final queryParams = {'month': month.toString(), 'year': year.toString()};
+
+      final response = await _dio.get(
+        '/attendance/monthly',
+        queryParameters: queryParams,
+      );
+
+      debugPrint('✅ Response Status: ${response.statusCode}');
+      debugPrint('📦 Response Data: ${response.data}');
+
+      if (response.statusCode == 200) {
+        final responseData = response.data;
+
+        // Check if data exists
+        if (responseData['data'] != null) {
+          final List<dynamic> dataList = responseData['data'] as List;
+
+          debugPrint('✅ Found ${dataList.length} attendance records');
+
+          return {'success': true, 'data': dataList, 'count': dataList.length};
+        } else {
+          // No data for this month
+          debugPrint('ℹ️ No attendance data for this month');
+          return {'success': true, 'data': [], 'count': 0};
+        }
+      } else if (response.statusCode == 404) {
+        // No data found - this is OK
+        debugPrint('ℹ️ 404 - No attendance data for this month');
+        return {'success': true, 'data': [], 'count': 0};
+      } else if (response.statusCode == 401) {
+        debugPrint('❌ Unauthorized');
+        return {'success': false, 'error': 'Unauthorized - Please login again'};
+      } else if (response.statusCode == 400) {
+        // Bad request - invalid parameters
+        final error =
+            response.data['error'] ??
+            response.data['message'] ??
+            'Invalid request parameters';
+        debugPrint('❌ Bad Request: $error');
+        return {'success': false, 'error': error};
+      } else {
+        debugPrint('❌ Unexpected status code: ${response.statusCode}');
+        return {
+          'success': false,
+          'error':
+              response.data['error'] ??
+              response.data['message'] ??
+              'Failed to get monthly attendance',
         };
       }
     } on DioException catch (e) {
@@ -199,11 +255,6 @@ class AttendanceService {
 
   /// Submit check-in attendance
   /// POST /attendance/clock-in (multipart/form-data)
-  ///
-  /// Parameters:
-  /// - [photoPath]: Path to the image file
-  /// - [latitude]: Latitude coordinate (string)
-  /// - [longitude]: Longitude coordinate (string)
   Future<Map<String, dynamic>> clockIn({
     required String photoPath,
     required String latitude,
@@ -276,11 +327,6 @@ class AttendanceService {
 
   /// Submit check-out attendance
   /// POST /attendance/clock-out (multipart/form-data)
-  ///
-  /// Parameters:
-  /// - [photoPath]: Path to the image file
-  /// - [latitude]: Latitude coordinate (string)
-  /// - [longitude]: Longitude coordinate (string)
   Future<Map<String, dynamic>> clockOut({
     required String photoPath,
     required String latitude,

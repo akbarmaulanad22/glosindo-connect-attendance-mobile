@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:glosindo_connect/viewmodels/progress_ticket_viewmodel.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -55,6 +56,7 @@ class GlosindoConnectApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PengajuanViewModel()),
         ChangeNotifierProvider(create: (_) => ShiftingViewModel()),
         ChangeNotifierProvider(create: (_) => ProfileViewModel()),
+        ChangeNotifierProvider(create: (_) => ProgressTicketViewModel()),
       ],
       child: MaterialApp(
         title: 'Glosindo Connect',

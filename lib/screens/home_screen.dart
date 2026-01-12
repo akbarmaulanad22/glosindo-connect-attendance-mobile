@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:glosindo_connect/services/attendance_service.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../services/location_service.dart';
 import '../services/image_watermark_service.dart';
+import '../services/attendance_service.dart';
 import 'presensi_screen.dart';
 import 'tiket_screen.dart';
 import 'report_progress_screen.dart';
@@ -19,13 +20,13 @@ import 'company_info_screen.dart';
 import 'attendance_confirmation_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final ImagePicker _imagePicker = ImagePicker();
   final LocationService _locationService = LocationService();
   final ImageWatermarkService _watermarkService = ImageWatermarkService();
@@ -43,7 +44,72 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadTodayAttendance();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // ==================== LIFECYCLE OBSERVER ====================
+
+  /// Handle app lifecycle changes
+  /// This is critical for detecting when user returns from Settings
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    debugPrint('📱 App Lifecycle State: $state');
+
+    if (state == AppLifecycleState.resumed) {
+      // User returned to app (possibly from Settings)
+      debugPrint('🔄 App resumed - User returned to app');
+
+      // Re-check location service status if we were waiting for it
+      if (_waitingForLocationService) {
+        debugPrint('🔍 Re-checking location service status...');
+        _recheckLocationServiceAfterResume();
+      }
+    }
+  }
+
+  // Flag to track if we're waiting for user to enable location
+  bool _waitingForLocationService = false;
+
+  /// Re-check location service after user returns from Settings
+  Future<void> _recheckLocationServiceAfterResume() async {
+    setState(() => _waitingForLocationService = false);
+
+    // Give a small delay for system to update
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Check if location is now enabled
+    final isEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (isEnabled) {
+      debugPrint('✅ Location service is now ENABLED');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('GPS berhasil diaktifkan!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } else {
+      debugPrint('⚠️ Location service is still DISABLED');
+    }
   }
 
   // ==================== LOAD TODAY'S ATTENDANCE ====================
@@ -145,7 +211,7 @@ class _HomeScreenState extends State<HomeScreen> {
         print(
           '✅ Location validated: ${position.latitude}, ${position.longitude}',
         );
-      } on MockLocationException catch (e) {
+      } on MockLocationException {
         // Mock location detected!
         print('❌ Mock Location Detected!');
         if (mounted) {
@@ -234,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ==================== STRICT LOCATION CHECK ====================
+  // ==================== STRICT LOCATION CHECK WITH RESUME SUPPORT ====================
 
   /// STRICT CHECK: GPS Service + Permissions
   ///
@@ -242,15 +308,20 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Step 2: Check location permissions
   ///
   /// Returns true if all checks pass, false otherwise
+  ///
+  /// IMPROVED: Now waits for user to return from Settings
   Future<bool> _checkLocationServiceStrict() async {
     try {
       // ==================== CHECK 1: GPS HARDWARE ====================
       debugPrint('🔍 Check 1: GPS Service Status...');
 
-      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
       if (!serviceEnabled) {
         debugPrint('❌ GPS is DISABLED');
+
+        // Set flag that we're waiting for location service
+        setState(() => _waitingForLocationService = true);
 
         // Show dialog to ask user to enable GPS
         if (!mounted) return false;
@@ -258,57 +329,95 @@ class _HomeScreenState extends State<HomeScreen> {
         final shouldOpenSettings = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.location_off, color: Colors.red, size: 28),
-                SizedBox(width: 12),
-                Text('GPS Tidak Aktif'),
+          builder: (context) => WillPopScope(
+            onWillPop: () async {
+              // Allow user to dismiss
+              setState(() => _waitingForLocationService = false);
+              return true;
+            },
+            child: AlertDialog(
+              title: Row(
+                children: const [
+                  Icon(Icons.location_off, color: Colors.red, size: 28),
+                  SizedBox(width: 12),
+                  Text('GPS Tidak Aktif'),
+                ],
+              ),
+              content: const Text(
+                'Aplikasi memerlukan GPS untuk verifikasi lokasi presensi.\n\n'
+                'Mohon aktifkan GPS/Lokasi di pengaturan perangkat Anda.',
+                style: TextStyle(fontSize: 15, height: 1.5),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    setState(() => _waitingForLocationService = false);
+                    Navigator.pop(context, false);
+                  },
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context, true),
+                  icon: const Icon(Icons.settings),
+                  label: const Text('Buka Pengaturan'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E88E5),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
               ],
             ),
-            content: const Text(
-              'Aplikasi memerlukan GPS untuk verifikasi lokasi presensi.\n\n'
-              'Mohon aktifkan GPS/Lokasi di pengaturan perangkat Anda.',
-              style: TextStyle(fontSize: 15, height: 1.5),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Batal'),
-              ),
-              ElevatedButton.icon(
-                onPressed: () => Navigator.pop(context, true),
-                icon: const Icon(Icons.settings),
-                label: const Text('Buka Pengaturan'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E88E5),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
           ),
         );
 
         if (shouldOpenSettings == true) {
+          debugPrint('📱 Opening location settings...');
+
           // Open location settings
           await Geolocator.openLocationSettings();
 
-          // Wait a bit for user to enable GPS
+          // Wait for user to return (handled by didChangeAppLifecycleState)
+          // Small delay to let the settings app open
           await Future.delayed(const Duration(milliseconds: 500));
 
-          // Re-check after user returns
-          final isNowEnabled = await Geolocator.isLocationServiceEnabled();
-          if (!isNowEnabled) {
+          // CRITICAL: Re-check after user might have enabled GPS
+          debugPrint('🔄 Re-checking GPS status after settings...');
+          serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+          if (!serviceEnabled) {
+            // Still disabled after returning from settings
+            setState(() => _waitingForLocationService = false);
+
             if (mounted) {
               _showError(
                 'GPS masih belum aktif. Mohon aktifkan GPS terlebih dahulu.',
               );
             }
             return false;
-          }
+          } else {
+            // Successfully enabled!
+            debugPrint('✅ GPS is now ENABLED');
+            setState(() => _waitingForLocationService = false);
 
-          debugPrint('✅ GPS enabled by user');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 12),
+                      Text('GPS berhasil diaktifkan!'),
+                    ],
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          }
         } else {
+          // User cancelled
+          setState(() => _waitingForLocationService = false);
           return false;
         }
       } else {
@@ -370,6 +479,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return true;
     } catch (e) {
       debugPrint('❌ Error checking location service: $e');
+      setState(() => _waitingForLocationService = false);
+
       if (mounted) {
         _showError('Gagal memeriksa layanan lokasi: ${e.toString()}');
       }
@@ -496,344 +607,357 @@ class _HomeScreenState extends State<HomeScreen> {
     final authViewModel = context.watch<AuthViewModel>();
     final user = authViewModel.currentUser;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadTodayAttendance,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header dengan gradient
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF1E88E5), Color(0xFF1976D2)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent, // 🔥 FIXED: Transparent status bar
+        statusBarIconBrightness:
+            Brightness.light, // White icons on blue background
+        statusBarBrightness: Brightness.dark, // For iOS
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _loadTodayAttendance,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header dengan gradient
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF1E88E5), Color(0xFF1976D2)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                     ),
-                  ),
-                  child: Column(
-                    children: [
-                      // AppBar custom
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 24,
-                              backgroundColor: Colors.white,
-                              child: Text(
-                                user?.name.substring(0, 1).toUpperCase() ?? 'U',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1E88E5),
+                    child: Column(
+                      children: [
+                        // AppBar custom
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: Colors.white,
+                                child: Text(
+                                  user?.name.substring(0, 1).toUpperCase() ??
+                                      'U',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E88E5),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Halo, ${user?.name ?? "User"}!',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  Text(
-                                    user?.jabatan ?? 'Karyawan',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.notifications_outlined,
-                                color: Colors.white,
-                              ),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Tidak ada notifikasi baru'),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Quick Presensi Card
-                      Container(
-                        margin: const EdgeInsets.all(16),
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      'Presensi Hari Ini',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
+                                    Text(
+                                      'Halo, ${user?.name ?? "User"}!',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
                                     Text(
-                                      DateFormat(
-                                        'EEEE, dd MMMM yyyy',
-                                        'id_ID',
-                                      ).format(DateTime.now()),
-                                      style: TextStyle(
+                                      user?.jabatan ?? 'Karyawan',
+                                      style: const TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade600,
+                                        color: Colors.white70,
                                       ),
                                     ),
                                   ],
                                 ),
-                                IconButton(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            const PresensiScreen(),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.notifications_outlined,
+                                  color: Colors.white,
+                                ),
+                                onPressed: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Tidak ada notifikasi baru',
                                       ),
-                                    );
-                                  },
-                                  icon: Icon(
-                                    Icons.access_time,
-                                    color: Colors.blue.shade700,
-                                    size: 32,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildTimeCard(
-                                    'Check In',
-                                    _clockInTime ?? '--:--',
-                                    Icons.login,
-                                    Colors.green,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildTimeCard(
-                                    'Check Out',
-                                    _clockOutTime ?? '--:--',
-                                    Icons.logout,
-                                    Colors.orange,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
 
-                            // DYNAMIC BUTTON - Clock In or Clock Out
-                            _isLoadingAttendance
-                                ? const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(12.0),
-                                      child: CircularProgressIndicator(),
-                                    ),
-                                  )
-                                : ElevatedButton.icon(
-                                    onPressed: _hasClockOut || _isProcessing
-                                        ? null
-                                        : _handleAttendance,
-                                    icon: _isProcessing
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : Icon(
-                                            _hasClockIn && !_hasClockOut
-                                                ? Icons.logout
-                                                : Icons.fingerprint,
-                                          ),
-                                    label: Text(
-                                      _isProcessing
-                                          ? 'Processing...'
-                                          : _hasClockOut
-                                          ? 'Presensi Selesai'
-                                          : _hasClockIn
-                                          ? 'Clock Out Sekarang'
-                                          : 'Clock In Sekarang',
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: _hasClockOut
-                                          ? Colors.grey
-                                          : _hasClockIn
-                                          ? Colors.orange
-                                          : const Color(0xFF1E88E5),
-                                      foregroundColor: Colors.white,
-                                      minimumSize: const Size.fromHeight(44),
+                        // Quick Presensi Card
+                        Container(
+                          margin: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Presensi Hari Ini',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        DateFormat(
+                                          'EEEE, dd MMMM yyyy',
+                                          'id_ID',
+                                        ).format(DateTime.now()),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  IconButton(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const PresensiScreen(),
+                                        ),
+                                      );
+                                    },
+                                    icon: Icon(
+                                      Icons.access_time,
+                                      color: Colors.blue.shade700,
+                                      size: 32,
                                     ),
                                   ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildTimeCard(
+                                      'Check In',
+                                      _clockInTime ?? '--:--',
+                                      Icons.login,
+                                      Colors.green,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildTimeCard(
+                                      'Check Out',
+                                      _clockOutTime ?? '--:--',
+                                      Icons.logout,
+                                      Colors.orange,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+
+                              // DYNAMIC BUTTON - Clock In or Clock Out
+                              _isLoadingAttendance
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(12.0),
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    )
+                                  : ElevatedButton.icon(
+                                      onPressed: _hasClockOut || _isProcessing
+                                          ? null
+                                          : _handleAttendance,
+                                      icon: _isProcessing
+                                          ? const SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : Icon(
+                                              _hasClockIn && !_hasClockOut
+                                                  ? Icons.logout
+                                                  : Icons.fingerprint,
+                                            ),
+                                      label: Text(
+                                        _isProcessing
+                                            ? 'Processing...'
+                                            : _hasClockOut
+                                            ? 'Presensi Selesai'
+                                            : _hasClockIn
+                                            ? 'Clock Out Sekarang'
+                                            : 'Clock In Sekarang',
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _hasClockOut
+                                            ? Colors.grey
+                                            : _hasClockIn
+                                            ? Colors.orange
+                                            : const Color(0xFF1E88E5),
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size.fromHeight(44),
+                                      ),
+                                    ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Menu Grid (sama seperti sebelumnya...)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Menu Utama',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        GridView.count(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          crossAxisCount: 3,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          children: [
+                            _buildMenuCard(
+                              'Report Progress',
+                              Icons.analytics_outlined,
+                              Colors.purple,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ReportProgressScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Informasi Tiket',
+                              Icons.confirmation_number_outlined,
+                              Colors.orange,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const TiketScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Riwayat Presensi',
+                              Icons.history,
+                              Colors.green,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const PresensiScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Kasbon',
+                              Icons.account_balance_wallet_outlined,
+                              Colors.green,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const KasbonScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Lembur/Izin/Cuti',
+                              Icons.event_note_outlined,
+                              Colors.blue,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const PengajuanScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Shifting Kerja',
+                              Icons.calendar_month,
+                              Colors.teal,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ShiftingScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Data Pribadi',
+                              Icons.person_outlined,
+                              Colors.indigo,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ProfileScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Info Perusahaan',
+                              Icons.business_outlined,
+                              Colors.red,
+                              () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const CompanyInfoScreen(),
+                                ),
+                              ),
+                            ),
+                            _buildMenuCard(
+                              'Logout',
+                              Icons.logout,
+                              Colors.grey,
+                              () => _handleLogout(),
+                            ),
                           ],
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // Menu Grid (sama seperti sebelumnya...)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Menu Utama',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      GridView.count(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: 3,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        children: [
-                          _buildMenuCard(
-                            'Report Progress',
-                            Icons.analytics_outlined,
-                            Colors.purple,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ReportProgressScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Informasi Tiket',
-                            Icons.confirmation_number_outlined,
-                            Colors.orange,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const TiketScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Presensi',
-                            Icons.access_time,
-                            Colors.green,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const PresensiScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Kasbon',
-                            Icons.account_balance_wallet_outlined,
-                            Colors.green,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const KasbonScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Lembur/Izin/Cuti',
-                            Icons.event_note_outlined,
-                            Colors.blue,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const PengajuanScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Shifting Kerja',
-                            Icons.schedule_outlined,
-                            Colors.teal,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ShiftingScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Data Pribadi',
-                            Icons.person_outlined,
-                            Colors.indigo,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ProfileScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Info Perusahaan',
-                            Icons.business_outlined,
-                            Colors.red,
-                            () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const CompanyInfoScreen(),
-                              ),
-                            ),
-                          ),
-                          _buildMenuCard(
-                            'Logout',
-                            Icons.logout,
-                            Colors.grey,
-                            () => _handleLogout(),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
