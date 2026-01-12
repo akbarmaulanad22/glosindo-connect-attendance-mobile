@@ -40,8 +40,31 @@ class UserModel {
       'email': email,
       'phone': phone,
       'photo': photo,
-      'jabatan': jabatan,
-      'divisi': divisi,
+      'position': jabatan,
+      'division': divisi,
     };
+  }
+
+  // Create a copy with modified fields
+  UserModel copyWith({
+    String? id,
+    String? nik,
+    String? name,
+    String? email,
+    String? phone,
+    String? photo,
+    String? jabatan,
+    String? divisi,
+  }) {
+    return UserModel(
+      id: id ?? this.id,
+      nik: nik ?? this.nik,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      photo: photo ?? this.photo,
+      jabatan: jabatan ?? this.jabatan,
+      divisi: divisi ?? this.divisi,
+    );
   }
 }

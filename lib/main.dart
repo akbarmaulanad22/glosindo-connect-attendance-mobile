@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:glosindo_connect/viewmodels/profile_viewmodel.dart';
 import 'package:glosindo_connect/viewmodels/progress_ticket_viewmodel.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
@@ -13,11 +14,8 @@ import 'screens/home_screen.dart';
 // Import ViewModels
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/presensi_viewmodel.dart';
-import 'viewmodels/tiket_viewmodel.dart';
-import 'viewmodels/kasbon_viewmodel.dart';
 import 'viewmodels/pengajuan_viewmodel.dart';
 import 'viewmodels/shifting_viewmodel.dart';
-import 'viewmodels/profile_viewmodel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,8 +49,6 @@ class GlosindoConnectApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthViewModel()),
         ChangeNotifierProvider(create: (_) => PresensiViewModel()),
-        ChangeNotifierProvider(create: (_) => TiketViewModel()),
-        ChangeNotifierProvider(create: (_) => KasbonViewModel()),
         ChangeNotifierProvider(create: (_) => PengajuanViewModel()),
         ChangeNotifierProvider(create: (_) => ShiftingViewModel()),
         ChangeNotifierProvider(create: (_) => ProfileViewModel()),

@@ -13,6 +13,7 @@ class ShiftingScreen extends StatefulWidget {
 class _ShiftingScreenState extends State<ShiftingScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  CalendarFormat _calendarFormat = CalendarFormat.month;
 
   @override
   void initState() {
@@ -40,8 +41,13 @@ class _ShiftingScreenState extends State<ShiftingScreen> {
                 lastDay: DateTime.utc(2030, 12, 31),
                 focusedDay: _focusedDay,
                 selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                calendarFormat: CalendarFormat.month,
+                calendarFormat: _calendarFormat,
                 startingDayOfWeek: StartingDayOfWeek.monday,
+                availableCalendarFormats: const {
+                  CalendarFormat.month: 'Month',
+                  CalendarFormat.twoWeeks: '2 Weeks',
+                  CalendarFormat.week: 'Week',
+                },
                 calendarStyle: CalendarStyle(
                   todayDecoration: BoxDecoration(
                     color: const Color(0xFF1E88E5).withOpacity(0.5),
@@ -61,6 +67,13 @@ class _ShiftingScreenState extends State<ShiftingScreen> {
                 onPageChanged: (focusedDay) {
                   _focusedDay = focusedDay;
                   _loadData();
+                },
+                onFormatChanged: (format) {
+                  if (_calendarFormat != format) {
+                    setState(() {
+                      _calendarFormat = format;
+                    });
+                  }
                 },
                 calendarBuilders: CalendarBuilders(
                   markerBuilder: (context, date, events) {

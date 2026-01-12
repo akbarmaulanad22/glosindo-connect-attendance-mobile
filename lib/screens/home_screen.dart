@@ -10,7 +10,7 @@ import '../services/location_service.dart';
 import '../services/image_watermark_service.dart';
 import '../services/attendance_service.dart';
 import 'presensi_screen.dart';
-import 'tiket_screen.dart';
+import 'ticket_screen.dart';
 import 'report_progress_screen.dart';
 import 'kasbon_screen.dart';
 import 'pengajuan_screen.dart';
@@ -875,7 +875,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const TiketScreen(),
+                                  builder: (_) => const TicketScreen(),
                                 ),
                               ),
                             ),
