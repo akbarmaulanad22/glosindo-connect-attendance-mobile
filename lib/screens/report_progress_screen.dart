@@ -16,12 +16,11 @@ class _ReportProgressScreenState extends State<ReportProgressScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
   Future<void> _loadData() async {
-    final viewModel = context.read<ProgressTicketViewModel>();
-    await viewModel.fetchTickets();
+    await context.read<ProgressTicketViewModel>().fetchTickets();
   }
 
   @override
@@ -44,228 +43,80 @@ class _ReportProgressScreenState extends State<ReportProgressScreen> {
             ),
           ],
         ),
-        body: Consumer<ProgressTicketViewModel>(
-          builder: (context, viewModel, _) {
-            if (viewModel.isLoading && viewModel.tickets.isEmpty) {
+        body: Selector<ProgressTicketViewModel, bool>(
+          selector: (_, vm) => vm.isLoading && vm.tickets.isEmpty,
+          builder: (context, isInitialLoading, _) {
+            if (isInitialLoading) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            if (viewModel.errorMessage != null && viewModel.tickets.isEmpty) {
-              return _buildErrorState(viewModel.errorMessage!);
-            }
+            return Selector<ProgressTicketViewModel, String?>(
+              selector: (_, vm) => vm.errorMessage,
+              builder: (context, error, _) {
+                if (error != null) {
+                  final hasTickets = context
+                      .read<ProgressTicketViewModel>()
+                      .tickets
+                      .isNotEmpty;
+                  if (!hasTickets) {
+                    return _buildErrorState(error);
+                  }
+                }
 
-            return RefreshIndicator(
-              onRefresh: _loadData,
-              child: CustomScrollView(
-                slivers: [
-                  // Chart Section
-                  SliverToBoxAdapter(child: _buildChartSection(viewModel)),
+                return RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: CustomScrollView(
+                    slivers: [
+                      // Chart Section - Wrapped with RepaintBoundary
+                      SliverToBoxAdapter(
+                        child: RepaintBoundary(child: _ChartSection()),
+                      ),
 
-                  // Summary Section
-                  SliverToBoxAdapter(child: _buildSummarySection(viewModel)),
+                      // Summary Section - Wrapped with RepaintBoundary
+                      SliverToBoxAdapter(
+                        child: RepaintBoundary(child: _SummarySection()),
+                      ),
 
-                  // List Header
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
-                      child: Text(
-                        'Daftar Tiket',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                      // List Header
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
+                          child: Text(
+                            'Daftar Tiket',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+
+                      // Optimized Ticket List
+                      Selector<ProgressTicketViewModel, List<ProgressTicket>>(
+                        selector: (_, vm) => vm.tickets,
+                        builder: (context, tickets, _) {
+                          if (tickets.isEmpty) {
+                            return SliverFillRemaining(
+                              child: _buildEmptyState(),
+                            );
+                          }
+
+                          return _OptimizedTicketList(tickets: tickets);
+                        },
+                      ),
+
+                      // Bottom padding
+                      const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    ],
                   ),
-
-                  // OPTIMIZED TICKET LIST
-                  viewModel.tickets.isEmpty
-                      ? SliverFillRemaining(child: _buildEmptyState())
-                      : OptimizedTicketList(
-                          tickets: viewModel.tickets,
-                          viewModel: viewModel,
-                        ),
-
-                  // Bottom padding
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                ],
-              ),
+                );
+              },
             );
           },
         ),
       ),
     );
   }
-
-  // ==================== CHART SECTION ====================
-
-  Widget _buildChartSection(ProgressTicketViewModel viewModel) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          const Text(
-            'Status Distribusi',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            height: 200,
-            child: viewModel.totalCount == 0
-                ? const Center(child: Text('Tidak ada data'))
-                : PieChart(
-                    PieChartData(
-                      sections: _buildPieChartSections(viewModel),
-                      sectionsSpace: 2,
-                      centerSpaceRadius: 50,
-                      startDegreeOffset: -90,
-                    ),
-                  ),
-          ),
-          const SizedBox(height: 24),
-          _buildChartLegend(),
-        ],
-      ),
-    );
-  }
-
-  List<PieChartSectionData> _buildPieChartSections(
-    ProgressTicketViewModel viewModel,
-  ) {
-    final sections = <PieChartSectionData>[];
-
-    if (viewModel.openCount > 0) {
-      sections.add(
-        PieChartSectionData(
-          value: viewModel.openCount.toDouble(),
-          title: '${viewModel.openCount}',
-          color: Colors.red,
-          radius: 60,
-          titleStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      );
-    }
-
-    if (viewModel.onProgressCount > 0) {
-      sections.add(
-        PieChartSectionData(
-          value: viewModel.onProgressCount.toDouble(),
-          title: '${viewModel.onProgressCount}',
-          color: Colors.orange,
-          radius: 60,
-          titleStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      );
-    }
-
-    if (viewModel.closedCount > 0) {
-      sections.add(
-        PieChartSectionData(
-          value: viewModel.closedCount.toDouble(),
-          title: '${viewModel.closedCount}',
-          color: Colors.green,
-          radius: 60,
-          titleStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      );
-    }
-
-    return sections;
-  }
-
-  Widget _buildChartLegend() {
-    return const Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _LegendItem(label: 'Open', color: Colors.red),
-        _LegendItem(label: 'On Progress', color: Colors.orange),
-        _LegendItem(label: 'Closed', color: Colors.green),
-      ],
-    );
-  }
-
-  // ==================== SUMMARY SECTION ====================
-
-  Widget _buildSummarySection(ProgressTicketViewModel viewModel) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF1E88E5).withOpacity(0.1),
-            const Color(0xFF1976D2).withOpacity(0.05),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildSummaryItem('Total', viewModel.totalCount, Icons.analytics),
-          _buildSummaryItem('Open', viewModel.openCount, Icons.error_outline),
-          _buildSummaryItem(
-            'Progress',
-            viewModel.onProgressCount,
-            Icons.hourglass_empty,
-          ),
-          _buildSummaryItem(
-            'Closed',
-            viewModel.closedCount,
-            Icons.check_circle_outline,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryItem(String label, int count, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, color: const Color(0xFF1E88E5), size: 28),
-        const SizedBox(height: 8),
-        Text(
-          '$count',
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF1E88E5),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-      ],
-    );
-  }
-
-  // ==================== EMPTY & ERROR STATES ====================
 
   Widget _buildEmptyState() {
     return Center(
@@ -319,17 +170,308 @@ class _ReportProgressScreenState extends State<ReportProgressScreen> {
   }
 }
 
-// ==================== OPTIMIZED TICKET LIST ====================
-// Uses SliverList.builder for efficient lazy loading
-class OptimizedTicketList extends StatelessWidget {
-  final List<ProgressTicket> tickets;
-  final ProgressTicketViewModel viewModel;
+// ==================== CHART SECTION (Isolated Widget) ====================
+class _ChartSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Status Distribusi',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 200,
+            child: Selector<ProgressTicketViewModel, int>(
+              selector: (_, vm) => vm.totalCount,
+              builder: (context, totalCount, _) {
+                if (totalCount == 0) {
+                  return const Center(child: Text('Tidak ada data'));
+                }
 
-  const OptimizedTicketList({
-    Key? key,
-    required this.tickets,
-    required this.viewModel,
-  }) : super(key: key);
+                return Selector<ProgressTicketViewModel, _ChartData>(
+                  selector: (_, vm) => _ChartData(
+                    openCount: vm.openCount,
+                    onProgressCount: vm.onProgressCount,
+                    closedCount: vm.closedCount,
+                  ),
+                  builder: (context, chartData, _) {
+                    return PieChart(
+                      PieChartData(
+                        sections: _buildPieChartSections(chartData),
+                        sectionsSpace: 2,
+                        centerSpaceRadius: 50,
+                        startDegreeOffset: -90,
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+          const _ChartLegend(),
+        ],
+      ),
+    );
+  }
+
+  List<PieChartSectionData> _buildPieChartSections(_ChartData data) {
+    final sections = <PieChartSectionData>[];
+
+    if (data.openCount > 0) {
+      sections.add(
+        PieChartSectionData(
+          value: data.openCount.toDouble(),
+          title: '${data.openCount}',
+          color: Colors.red,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    if (data.onProgressCount > 0) {
+      sections.add(
+        PieChartSectionData(
+          value: data.onProgressCount.toDouble(),
+          title: '${data.onProgressCount}',
+          color: Colors.orange,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    if (data.closedCount > 0) {
+      sections.add(
+        PieChartSectionData(
+          value: data.closedCount.toDouble(),
+          title: '${data.closedCount}',
+          color: Colors.green,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    return sections;
+  }
+}
+
+class _ChartData {
+  final int openCount;
+  final int onProgressCount;
+  final int closedCount;
+
+  _ChartData({
+    required this.openCount,
+    required this.onProgressCount,
+    required this.closedCount,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ChartData &&
+          openCount == other.openCount &&
+          onProgressCount == other.onProgressCount &&
+          closedCount == other.closedCount;
+
+  @override
+  int get hashCode => Object.hash(openCount, onProgressCount, closedCount);
+}
+
+class _ChartLegend extends StatelessWidget {
+  const _ChartLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _LegendItem(label: 'Open', color: Colors.red),
+        _LegendItem(label: 'On Progress', color: Colors.orange),
+        _LegendItem(label: 'Closed', color: Colors.green),
+      ],
+    );
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _LegendItem({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+}
+
+// ==================== SUMMARY SECTION (Isolated Widget) ====================
+class _SummarySection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1E88E5).withOpacity(0.1),
+            const Color(0xFF1976D2).withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Selector<ProgressTicketViewModel, _SummaryData>(
+        selector: (_, vm) => _SummaryData(
+          totalCount: vm.totalCount,
+          openCount: vm.openCount,
+          onProgressCount: vm.onProgressCount,
+          closedCount: vm.closedCount,
+        ),
+        builder: (context, data, _) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _SummaryItem(
+                label: 'Total',
+                count: data.totalCount,
+                icon: Icons.analytics,
+              ),
+              _SummaryItem(
+                label: 'Open',
+                count: data.openCount,
+                icon: Icons.error_outline,
+              ),
+              _SummaryItem(
+                label: 'Progress',
+                count: data.onProgressCount,
+                icon: Icons.hourglass_empty,
+              ),
+              _SummaryItem(
+                label: 'Closed',
+                count: data.closedCount,
+                icon: Icons.check_circle_outline,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SummaryData {
+  final int totalCount;
+  final int openCount;
+  final int onProgressCount;
+  final int closedCount;
+
+  _SummaryData({
+    required this.totalCount,
+    required this.openCount,
+    required this.onProgressCount,
+    required this.closedCount,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _SummaryData &&
+          totalCount == other.totalCount &&
+          openCount == other.openCount &&
+          onProgressCount == other.onProgressCount &&
+          closedCount == other.closedCount;
+
+  @override
+  int get hashCode =>
+      Object.hash(totalCount, openCount, onProgressCount, closedCount);
+}
+
+class _SummaryItem extends StatelessWidget {
+  final String label;
+  final int count;
+  final IconData icon;
+
+  const _SummaryItem({
+    required this.label,
+    required this.count,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: const Color(0xFF1E88E5), size: 28),
+        const SizedBox(height: 8),
+        Text(
+          '$count',
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E88E5),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== OPTIMIZED TICKET LIST ====================
+class _OptimizedTicketList extends StatelessWidget {
+  final List<ProgressTicket> tickets;
+
+  const _OptimizedTicketList({required this.tickets});
 
   @override
   Widget build(BuildContext context) {
@@ -339,18 +481,11 @@ class OptimizedTicketList extends StatelessWidget {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final ticket = tickets[index];
-            // RepaintBoundary prevents unnecessary repaints
             return RepaintBoundary(
-              child: TicketCard(
-                key: ValueKey(ticket.id),
-                ticket: ticket,
-                onStatusUpdate: (newStatus) =>
-                    _handleStatusUpdate(context, ticket, newStatus),
-              ),
+              child: _TicketCard(key: ValueKey(ticket.id), ticket: ticket),
             );
           },
           childCount: tickets.length,
-          // Performance optimization: find items by key instead of rebuilding
           findChildIndexCallback: (Key key) {
             final valueKey = key as ValueKey<String>;
             final index = tickets.indexWhere((t) => t.id == valueKey.value);
@@ -360,86 +495,19 @@ class OptimizedTicketList extends StatelessWidget {
       ),
     );
   }
-
-  Future<void> _handleStatusUpdate(
-    BuildContext context,
-    ProgressTicket ticket,
-    String newStatus,
-  ) async {
-    // Show loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
-
-    // Call API
-    final success = await viewModel.updateTicketStatus(
-      ticketId: ticket.id,
-      newStatus: newStatus,
-    );
-
-    // Close loading
-    if (context.mounted) {
-      Navigator.pop(context);
-    }
-
-    // Show result
-    if (context.mounted) {
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Text('Status updated to $newStatus'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    viewModel.errorMessage ?? 'Failed to update status',
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
 }
 
-// ==================== OPTIMIZED TICKET CARD ====================
-// Lightweight widget with minimal nesting and efficient rendering
-class TicketCard extends StatelessWidget {
+// ==================== TICKET CARD (Optimized) ====================
+class _TicketCard extends StatelessWidget {
   final ProgressTicket ticket;
-  final Function(String) onStatusUpdate;
 
-  const TicketCard({
-    Key? key,
-    required this.ticket,
-    required this.onStatusUpdate,
-  }) : super(key: key);
+  const _TicketCard({Key? key, required this.ticket}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 1, // Reduced elevation for better performance
+      elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -448,9 +516,8 @@ class TicketCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min, // Minimize layout calculations
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Header with title and menu
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -481,12 +548,10 @@ class TicketCard extends StatelessWidget {
                   ),
                   _StatusMenuButton(
                     currentStatus: ticket.status,
-                    onSelected: onStatusUpdate,
+                    ticketId: ticket.id,
                   ),
                 ],
               ),
-
-              // Description (if available)
               if (ticket.description.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -496,10 +561,7 @@ class TicketCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-
               const SizedBox(height: 12),
-
-              // Bottom row: Technician and Status
               Row(
                 children: [
                   Icon(Icons.person_outline, size: 16, color: Colors.grey[600]),
@@ -512,7 +574,7 @@ class TicketCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  StatusChip(status: ticket.status),
+                  _StatusChip(status: ticket.status),
                 ],
               ),
             ],
@@ -531,20 +593,17 @@ class TicketCard extends StatelessWidget {
       builder: (context) => _StatusUpdateSheet(
         currentStatus: ticket.status,
         ticketTitle: ticket.title,
-        onStatusSelected: (newStatus) {
-          Navigator.pop(context);
-          onStatusUpdate(newStatus);
-        },
+        ticketId: ticket.id,
       ),
     );
   }
 }
 
-// ==================== STATUS CHIP (Const-friendly) ====================
-class StatusChip extends StatelessWidget {
+// ==================== STATUS CHIP ====================
+class _StatusChip extends StatelessWidget {
   final String status;
 
-  const StatusChip({Key? key, required this.status}) : super(key: key);
+  const _StatusChip({required this.status});
 
   @override
   Widget build(BuildContext context) {
@@ -611,11 +670,11 @@ class _StatusConfig {
 // ==================== STATUS MENU BUTTON ====================
 class _StatusMenuButton extends StatelessWidget {
   final String currentStatus;
-  final Function(String) onSelected;
+  final String ticketId;
 
   const _StatusMenuButton({
     required this.currentStatus,
-    required this.onSelected,
+    required this.ticketId,
   });
 
   @override
@@ -623,7 +682,7 @@ class _StatusMenuButton extends StatelessWidget {
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: Colors.grey[600]),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      onSelected: onSelected,
+      onSelected: (newStatus) => _handleStatusUpdate(context, newStatus),
       itemBuilder: (context) => TicketStatus.all
           .where((status) => status != currentStatus)
           .map((status) {
@@ -654,18 +713,63 @@ class _StatusMenuButton extends StatelessWidget {
         return Icons.help_outline;
     }
   }
+
+  Future<void> _handleStatusUpdate(
+    BuildContext context,
+    String newStatus,
+  ) async {
+    final viewModel = context.read<ProgressTicketViewModel>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final success = await viewModel.updateTicketStatus(
+      ticketId: ticketId,
+      newStatus: newStatus,
+    );
+
+    if (context.mounted) {
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                success ? Icons.check_circle : Icons.error_outline,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  success
+                      ? 'Status updated to $newStatus'
+                      : viewModel.errorMessage ?? 'Failed to update status',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+          duration: Duration(seconds: success ? 2 : 3),
+        ),
+      );
+    }
+  }
 }
 
 // ==================== STATUS UPDATE BOTTOM SHEET ====================
 class _StatusUpdateSheet extends StatelessWidget {
   final String currentStatus;
   final String ticketTitle;
-  final Function(String) onStatusSelected;
+  final String ticketId;
 
   const _StatusUpdateSheet({
     required this.currentStatus,
     required this.ticketTitle,
-    required this.onStatusSelected,
+    required this.ticketId,
   });
 
   @override
@@ -695,13 +799,61 @@ class _StatusUpdateSheet extends StatelessWidget {
           ) {
             return _StatusOption(
               status: status,
-              onTap: () => onStatusSelected(status),
+              onTap: () {
+                Navigator.pop(context);
+                _handleStatusUpdate(context, status);
+              },
             );
           }),
           const SizedBox(height: 8),
         ],
       ),
     );
+  }
+
+  Future<void> _handleStatusUpdate(
+    BuildContext context,
+    String newStatus,
+  ) async {
+    final viewModel = context.read<ProgressTicketViewModel>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final success = await viewModel.updateTicketStatus(
+      ticketId: ticketId,
+      newStatus: newStatus,
+    );
+
+    if (context.mounted) {
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                success ? Icons.check_circle : Icons.error_outline,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  success
+                      ? 'Status updated to $newStatus'
+                      : viewModel.errorMessage ?? 'Failed to update status',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+          duration: Duration(seconds: success ? 2 : 3),
+        ),
+      );
+    }
   }
 }
 
@@ -767,29 +919,5 @@ class _StatusOption extends StatelessWidget {
           icon: Icons.help_outline,
         );
     }
-  }
-}
-
-// ==================== LEGEND ITEM (Const) ====================
-class _LegendItem extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _LegendItem({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 8),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
-    );
   }
 }
