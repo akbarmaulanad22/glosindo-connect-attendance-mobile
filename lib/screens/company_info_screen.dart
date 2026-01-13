@@ -411,7 +411,8 @@ class CompanyInfoScreen extends StatelessWidget {
 
   Widget _buildValueCard(String title, IconData icon, Color color) {
     return Card(
-      color: color.withOpacity(0.1),
+      elevation: 2,
+      // color: color,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

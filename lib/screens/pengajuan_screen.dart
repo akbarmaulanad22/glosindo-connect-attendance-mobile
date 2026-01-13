@@ -532,6 +532,15 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
   static const String _storageKey = 'leave_requests';
 
   @override
+  void initState() {
+    super.initState();
+    // Add listener to text controller for reactive validation
+    _reasonController.addListener(() {
+      setState(() {}); // Trigger rebuild when text changes
+    });
+  }
+
+  @override
   void dispose() {
     _reasonController.dispose();
     super.dispose();

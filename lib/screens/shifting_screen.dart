@@ -18,6 +18,7 @@ class _ShiftingScreenState extends State<ShiftingScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedDay = _focusedDay;
     _loadData();
   }
 
@@ -36,74 +37,119 @@ class _ShiftingScreenState extends State<ShiftingScreen> {
         builder: (context, viewModel, _) {
           return Column(
             children: [
-              TableCalendar(
-                firstDay: DateTime.utc(2020, 1, 1),
-                lastDay: DateTime.utc(2030, 12, 31),
-                focusedDay: _focusedDay,
-                selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                calendarFormat: _calendarFormat,
-                startingDayOfWeek: StartingDayOfWeek.monday,
-                availableCalendarFormats: const {
-                  CalendarFormat.month: 'Month',
-                  CalendarFormat.twoWeeks: '2 Weeks',
-                  CalendarFormat.week: 'Week',
-                },
-                calendarStyle: CalendarStyle(
-                  todayDecoration: BoxDecoration(
-                    color: const Color(0xFF1E88E5).withOpacity(0.5),
-                    shape: BoxShape.circle,
-                  ),
-                  selectedDecoration: const BoxDecoration(
-                    color: Color(0xFF1E88E5),
-                    shape: BoxShape.circle,
+              // Wrap TableCalendar dengan Container untuk memberikan constraint
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: Colors.grey.shade300),
                   ),
                 ),
-                onDaySelected: (selectedDay, focusedDay) {
-                  setState(() {
-                    _selectedDay = selectedDay;
-                    _focusedDay = focusedDay;
-                  });
-                },
-                onPageChanged: (focusedDay) {
-                  _focusedDay = focusedDay;
-                  _loadData();
-                },
-                onFormatChanged: (format) {
-                  if (_calendarFormat != format) {
-                    setState(() {
-                      _calendarFormat = format;
-                    });
-                  }
-                },
-                calendarBuilders: CalendarBuilders(
-                  markerBuilder: (context, date, events) {
-                    final shift = viewModel.getShiftForDate(date);
-                    if (shift != null) {
-                      return Positioned(
-                        bottom: 1,
-                        child: Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: _getShiftColor(shift.shiftType),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      );
-                    }
-                    return null;
+                child: TableCalendar(
+                  firstDay: DateTime.utc(2020, 1, 1),
+                  lastDay: DateTime.utc(2030, 12, 31),
+                  focusedDay: _focusedDay,
+                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                  calendarFormat: _calendarFormat,
+                  startingDayOfWeek: StartingDayOfWeek.monday,
+
+                  // Properti penting untuk sizing yang konsisten
+                  daysOfWeekHeight: 40,
+                  rowHeight: 48,
+
+                  availableCalendarFormats: const {
+                    CalendarFormat.month: 'Month',
+                    CalendarFormat.twoWeeks: '2 Weeks',
+                    CalendarFormat.week: 'Week',
                   },
+
+                  calendarStyle: CalendarStyle(
+                    todayDecoration: BoxDecoration(
+                      color: const Color(0xFF1E88E5).withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    selectedDecoration: const BoxDecoration(
+                      color: Color(0xFF1E88E5),
+                      shape: BoxShape.circle,
+                    ),
+                    // Properti tambahan untuk styling yang lebih baik
+                    markersMaxCount: 1,
+                    canMarkersOverflow: false,
+                  ),
+
+                  headerStyle: const HeaderStyle(
+                    formatButtonVisible: true,
+                    titleCentered: true,
+                    formatButtonShowsNext: false,
+                  ),
+
+                  onDaySelected: (selectedDay, focusedDay) {
+                    setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
+                  },
+
+                  onPageChanged: (focusedDay) {
+                    setState(() {
+                      _focusedDay = focusedDay;
+                    });
+                    _loadData();
+                  },
+
+                  onFormatChanged: (format) {
+                    if (_calendarFormat != format) {
+                      setState(() {
+                        _calendarFormat = format;
+                      });
+                    }
+                  },
+
+                  calendarBuilders: CalendarBuilders(
+                    markerBuilder: (context, date, events) {
+                      final shift = viewModel.getShiftForDate(date);
+                      if (shift != null) {
+                        return Positioned(
+                          bottom: 1,
+                          child: Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: _getShiftColor(shift.shiftType),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        );
+                      }
+                      return null;
+                    },
+                  ),
                 ),
               ),
-              const Divider(),
-              if (_selectedDay != null) ...[
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: _buildShiftDetail(
-                    viewModel.getShiftForDate(_selectedDay!),
-                  ),
+
+              // Gunakan Expanded untuk konten detail shift
+              Expanded(
+                child: SingleChildScrollView(
+                  child: _selectedDay != null
+                      ? Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: _buildShiftDetail(
+                            viewModel.getShiftForDate(_selectedDay!),
+                          ),
+                        )
+                      : Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'Pilih tanggal untuk melihat detail shift',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
                 ),
-              ],
+              ),
             ],
           );
         },
