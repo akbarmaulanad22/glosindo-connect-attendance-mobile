@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:glosindo_connect/models/user_model.dart';
 import '../services/api_service.dart';
@@ -118,5 +120,56 @@ class AuthViewModel extends ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  void updateUserData(UserModel partialUpdatedUser) {
+    if (_currentUser == null) {
+      debugPrint('⚠️ updateUserData: currentUser is null, cannot update');
+      return;
+    }
+
+    // Gunakan copyWith untuk hanya update field yang berubah
+    // Field kosong dari partialUpdatedUser akan diabaikan
+    _currentUser = _currentUser!.copyWith(
+      name: partialUpdatedUser.name.isNotEmpty ? partialUpdatedUser.name : null,
+      email: partialUpdatedUser.email.isNotEmpty
+          ? partialUpdatedUser.email
+          : null,
+      phone: partialUpdatedUser.phone,
+    );
+
+    debugPrint('✅ updateUserData: User updated');
+    debugPrint('   Name: ${_currentUser!.name}');
+    debugPrint('   Email: ${_currentUser!.email}');
+    debugPrint('   Phone: ${_currentUser!.phone}');
+
+    notifyListeners();
+    _saveUserToPrefs(_currentUser!);
+  }
+
+  /// Update only user photo
+  void updateUserPhoto(String photoUrl) {
+    if (_currentUser == null) {
+      debugPrint('⚠️ updateUserPhoto: currentUser is null, cannot update');
+      return;
+    }
+
+    _currentUser = _currentUser!.copyWith(photo: photoUrl);
+
+    debugPrint('✅ updateUserPhoto: Photo updated to $photoUrl');
+
+    notifyListeners();
+    _saveUserToPrefs(_currentUser!);
+  }
+
+  /// Helper method to save user to SharedPreferences
+  Future<void> _saveUserToPrefs(UserModel user) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_data', jsonEncode(user.toJson()));
+      debugPrint('✅ User data saved to SharedPreferences');
+    } catch (e) {
+      debugPrint('❌ Error saving user to prefs: $e');
+    }
   }
 }

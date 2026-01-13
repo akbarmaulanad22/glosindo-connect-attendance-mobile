@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -22,10 +24,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _loadProfile() {
     final authViewModel = context.read<AuthViewModel>();
-    final profileViewModel = context.read<ProfileViewModel>();
-    if (authViewModel.currentUser != null) {
-      profileViewModel.setUser(authViewModel.currentUser!);
-    }
   }
 
   @override
@@ -42,7 +40,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       body: Consumer2<AuthViewModel, ProfileViewModel>(
         builder: (context, authViewModel, profileViewModel, _) {
-          final user = profileViewModel.user ?? authViewModel.currentUser;
+          final user = authViewModel.currentUser;
 
           if (user == null) {
             return const Center(child: Text('Data pengguna tidak tersedia'));
@@ -491,16 +489,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
 
       if (pickedFile != null) {
-        // Di sini Anda bisa upload foto ke server
-        // final file = File(pickedFile.path);
+        final file = File(pickedFile.path);
+
+        // Ambil viewmodels
+        final authViewModel = context.read<AuthViewModel>();
+        final profileViewModel = context.read<ProfileViewModel>();
+
+        // Show loading dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) =>
+                const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        // Upload foto
+        final success = await profileViewModel.updateProfilePhoto(
+          photoPath: file.path,
+          onSuccess: (photoUrl) {
+            // Update global state
+            authViewModel.updateUserPhoto(photoUrl);
+          },
+        );
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Foto profil berhasil diperbarui'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          Navigator.pop(context); // Close loading
+
+          if (success) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Foto profil berhasil diperbarui'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  profileViewModel.errorMessage ?? 'Gagal upload foto',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -515,10 +548,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // -------------------- PERUBAHAN #4: Method _showEditProfileDialog --------------------
   void _showEditProfileDialog() {
+    final authViewModel = context.read<AuthViewModel>();
     final profileViewModel = context.read<ProfileViewModel>();
-    final user =
-        profileViewModel.user ?? context.read<AuthViewModel>().currentUser;
+    final user = authViewModel.currentUser;
 
     if (user == null) return;
 
@@ -586,45 +620,71 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Batal'),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                final success = await profileViewModel.updateProfile(
-                  name: nameController.text,
-                  phone: phoneController.text,
-                  email: emailController.text,
-                );
+          Consumer<ProfileViewModel>(
+            builder: (context, vm, _) {
+              return ElevatedButton(
+                onPressed: vm.isLoading
+                    ? null
+                    : () async {
+                        if (formKey.currentState!.validate()) {
+                          final success = await vm.updateProfile(
+                            name: nameController.text,
+                            phone: phoneController.text.isEmpty
+                                ? null
+                                : phoneController.text,
+                            email: emailController.text,
+                            onSuccess: (updatedUser) {
+                              // Update global state
+                              authViewModel.updateUserData(updatedUser);
+                            },
+                          );
 
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  if (success) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Profil berhasil diperbarui'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          profileViewModel.errorMessage ?? 'Update gagal',
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Profil berhasil diperbarui'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    vm.errorMessage ?? 'Update gagal',
+                                  ),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      },
+                child: vm.isLoading
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                         ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              }
+                      )
+                    : const Text('Simpan'),
+              );
             },
-            child: const Text('Simpan'),
           ),
         ],
       ),
     );
   }
 
+  // -------------------- PERUBAHAN #5: Method _showChangePasswordDialog --------------------
   void _showChangePasswordDialog() {
+    final profileViewModel = context.read<ProfileViewModel>();
+
     final formKey = GlobalKey<FormState>();
     final oldPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
@@ -740,19 +800,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onPressed: () => Navigator.pop(context),
               child: const Text('Batal'),
             ),
-            ElevatedButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Password berhasil diubah'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
+            Consumer<ProfileViewModel>(
+              builder: (context, vm, _) {
+                return ElevatedButton(
+                  onPressed: vm.isLoading
+                      ? null
+                      : () async {
+                          if (formKey.currentState!.validate()) {
+                            final success = await vm.changePassword(
+                              oldPassword: oldPasswordController.text,
+                              newPassword: newPasswordController.text,
+                            );
+
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Password berhasil diubah'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      vm.errorMessage ??
+                                          'Gagal mengubah password',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          }
+                        },
+                  child: vm.isLoading
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Text('Simpan'),
+                );
               },
-              child: const Text('Simpan'),
             ),
           ],
         ),
